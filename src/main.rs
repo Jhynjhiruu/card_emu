@@ -12,7 +12,7 @@ use rp235x_hal::binary_info::{
 use rp235x_hal::block::ImageDef;
 use rp235x_hal::clocks::init_clocks_and_plls;
 use rp235x_hal::dma::{Byte, HalfWord};
-use rp235x_hal::gpio::Pins;
+use rp235x_hal::gpio::{DynPinId, FunctionPio0, Pin, PinGroup, Pins, PullUp};
 use rp235x_hal::pac::Peripherals;
 use rp235x_hal::pio::{PIOBuilder, PIOExt, PinDir, ShiftDirection};
 use rp235x_hal::usb::UsbBus;
@@ -68,6 +68,33 @@ fn main() -> ! {
         &mut pac.RESETS,
     );
 
+    let addr: [Pin<DynPinId, FunctionPio0, PullUp>; 8] = [
+        pins.gpio0.into_function().into_pull_type().into_dyn_pin(),
+        pins.gpio1.into_function().into_pull_type().into_dyn_pin(),
+        pins.gpio2.into_function().into_pull_type().into_dyn_pin(),
+        pins.gpio3.into_function().into_pull_type().into_dyn_pin(),
+        pins.gpio4.into_function().into_pull_type().into_dyn_pin(),
+        pins.gpio5.into_function().into_pull_type().into_dyn_pin(),
+        pins.gpio6.into_function().into_pull_type().into_dyn_pin(),
+        pins.gpio7.into_function().into_pull_type().into_dyn_pin(),
+    ];
+
+    let data: [Pin<DynPinId, FunctionPio0, PullUp>; 8] = [
+        pins.gpio8.into_function().into_pull_type().into_dyn_pin(),
+        pins.gpio9.into_function().into_pull_type().into_dyn_pin(),
+        pins.gpio10.into_function().into_pull_type().into_dyn_pin(),
+        pins.gpio11.into_function().into_pull_type().into_dyn_pin(),
+        pins.gpio12.into_function().into_pull_type().into_dyn_pin(),
+        pins.gpio13.into_function().into_pull_type().into_dyn_pin(),
+        pins.gpio14.into_function().into_pull_type().into_dyn_pin(),
+        pins.gpio15.into_function().into_pull_type().into_dyn_pin(),
+    ];
+
+    let ctrl: [Pin<DynPinId, FunctionPio0, PullUp>; 2] = [
+        pins.gpio16.into_function().into_pull_type().into_dyn_pin(),
+        pins.gpio17.into_function().into_pull_type().into_dyn_pin(),
+    ];
+
     let (mut pio0, sm0, sm1, _, _) = pac.PIO0.split(&mut pac.RESETS);
 
     // side-set 0 is DIR
@@ -102,25 +129,24 @@ fn main() -> ! {
     let read_installed = pio0.install(&read.program).unwrap();
     let write_installed = pio0.install(&write.program).unwrap();
 
-    let (mut read_sm, read_rx, read_tx) =
-        PIOBuilder::from_installed_program(read_installed)
-            .out_pins(ADDR_PIN_START, ADDR_PIN_LEN)
-            .out_shift_direction(ShiftDirection::Right)
-            .in_pin_base(DATA_PIN_START)
-            .in_count(DATA_PIN_LEN)
-            .in_shift_direction(ShiftDirection::Right)
-            .side_set_pin_base(CTRL_PIN_START)
-            .autopull(true)
-            .pull_threshold(8)
-            .autopush(true)
-            .push_threshold(8)
-            .clock_divisor_fixed_point(1, 0)
-            .build(sm0);
+    let (mut read_sm, read_rx, read_tx) = PIOBuilder::from_installed_program(read_installed)
+        .out_pins(addr[0].id().num, addr.len() as _)
+        .out_shift_direction(ShiftDirection::Right)
+        .in_pin_base(data[0].id().num)
+        .in_count(data.len() as _)
+        .in_shift_direction(ShiftDirection::Right)
+        .side_set_pin_base(ctrl[0].id().num)
+        .autopull(true)
+        .pull_threshold(8)
+        .autopush(true)
+        .push_threshold(8)
+        .clock_divisor_fixed_point(1, 0)
+        .build(sm0);
 
     let (write_sm, _, write_tx) = PIOBuilder::from_installed_program(write_installed)
-        .out_pins(ADDR_PIN_START, ADDR_PIN_LEN + DATA_PIN_LEN)
+        .out_pins(addr[0].id().num, addr.len() as _)
         .out_shift_direction(ShiftDirection::Right)
-        .side_set_pin_base(CTRL_PIN_START)
+        .side_set_pin_base(ctrl[0].id().num)
         .autopull(true)
         .pull_threshold(16)
         .clock_divisor_fixed_point(1, 0)
