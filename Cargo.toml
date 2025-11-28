@@ -4,8 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+cortex-m = { version = "0.7.7", features = ["inline-asm"] }
 panic-halt = "1.0.0"
-rp235x-hal = { version = "0.3.0", features = ["binary-info", "critical-section-impl"] }
+pio = "0.3.0"
+pio-proc = "0.3.0"
+rp235x-hal = { version = "0.3.0", features = ["binary-info", "critical-section-impl"], git = "https://github.com/rp-rs/rp-hal.git" }
 usb-device = "0.3.2"
 
 [dev-dependencies]
