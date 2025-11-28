@@ -1,0 +1,15 @@
+[package]
+name = "card_emu"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+panic-halt = "1.0.0"
+rp235x-hal = { version = "0.3.0", features = ["binary-info", "critical-section-impl"] }
+usb-device = "0.3.2"
+
+[dev-dependencies]
+cortex-m-rt = "0.7.5"
+
+[build-dependencies]
+anyhow = "1.0.100"
