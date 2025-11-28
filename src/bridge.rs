@@ -80,8 +80,31 @@ where
         let req = xfer.request();
 
         if req.request_type == RequestType::Vendor {
-            match req.request {
-                _ => {
+            let cmd = ControlCommand::try_from(req.request);
+
+            match cmd {
+                Ok(ControlCommand::Read) => {
+                    if self.read_tx.write_u16_replicated(req.value) == false {
+                        xfer.reject().unwrap();
+                        return;
+                    }
+
+                    if let Some(b) = self.read_rx.read() {
+                        xfer.accept(|buf| {
+                            buf[0] = b as u8;
+                            Ok(1)
+                        })
+                        .unwrap();
+                    } else {
+                        xfer.reject().unwrap();
+                    }
+                }
+
+                Ok(c) => {
+                    todo!("unimplemented command: {c:?}");
+                }
+
+                Err(_) => {
                     xfer.reject().unwrap();
                 }
             }

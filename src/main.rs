@@ -68,7 +68,7 @@ fn main() -> ! {
         &mut pac.RESETS,
     );
 
-    let addr: [Pin<DynPinId, FunctionPio0, PullUp>; 8] = [
+    let data: [Pin<DynPinId, FunctionPio0, PullUp>; 8] = [
         pins.gpio0.into_function().into_pull_type().into_dyn_pin(),
         pins.gpio1.into_function().into_pull_type().into_dyn_pin(),
         pins.gpio2.into_function().into_pull_type().into_dyn_pin(),
@@ -79,7 +79,7 @@ fn main() -> ! {
         pins.gpio7.into_function().into_pull_type().into_dyn_pin(),
     ];
 
-    let data: [Pin<DynPinId, FunctionPio0, PullUp>; 8] = [
+    let addr: [Pin<DynPinId, FunctionPio0, PullUp>; 8] = [
         pins.gpio8.into_function().into_pull_type().into_dyn_pin(),
         pins.gpio9.into_function().into_pull_type().into_dyn_pin(),
         pins.gpio10.into_function().into_pull_type().into_dyn_pin(),
@@ -103,7 +103,7 @@ fn main() -> ! {
         "
         .side_set 2 opt
         ; .in 8 left auto 8
-        ; .out 8 left auto 8
+        ; .out 16 right auto 16
         ; .clock_div 1
 
         .wrap_target
@@ -116,7 +116,7 @@ fn main() -> ! {
     let write = pio_asm!(
         "
         .side_set 2 opt
-        ; .out 16 left auto 16
+        ; .out 16 right auto 16
         ; .clock_div 1
 
         .wrap_target
@@ -130,21 +130,21 @@ fn main() -> ! {
     let write_installed = pio0.install(&write.program).unwrap();
 
     let (mut read_sm, read_rx, read_tx) = PIOBuilder::from_installed_program(read_installed)
-        .out_pins(addr[0].id().num, addr.len() as _)
+        .out_pins(data[0].id().num, (data.len() + addr.len()) as _)
         .out_shift_direction(ShiftDirection::Right)
         .in_pin_base(data[0].id().num)
         .in_count(data.len() as _)
-        .in_shift_direction(ShiftDirection::Right)
+        .in_shift_direction(ShiftDirection::Left)
         .side_set_pin_base(ctrl[0].id().num)
         .autopull(true)
-        .pull_threshold(8)
+        .pull_threshold(16)
         .autopush(true)
         .push_threshold(8)
         .clock_divisor_fixed_point(1, 0)
         .build(sm0);
 
     let (write_sm, _, write_tx) = PIOBuilder::from_installed_program(write_installed)
-        .out_pins(addr[0].id().num, addr.len() as _)
+        .out_pins(data[0].id().num, (data.len() + addr.len()) as _)
         .out_shift_direction(ShiftDirection::Right)
         .side_set_pin_base(ctrl[0].id().num)
         .autopull(true)
@@ -152,8 +152,8 @@ fn main() -> ! {
         .clock_divisor_fixed_point(1, 0)
         .build(sm1);
 
-    read_sm.set_pindirs([(DIR_PIN, PinDir::Output), (CLK_PIN, PinDir::Output)]);
-    for i in ADDR_PIN_START..(ADDR_PIN_START + ADDR_PIN_LEN) {
+    read_sm.set_pindirs(ctrl.map(|p| (p.id().num, PinDir::Output)));
+    for i in addr[0].id().num..(addr[0].id().num + addr.len() as u8) {
         read_sm.set_pindirs([(i, PinDir::Output)]);
     }
 
