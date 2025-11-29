@@ -149,7 +149,7 @@ fn main() -> ! {
         .pull_threshold(16)*/
         .autopush(true)
         .push_threshold(8)
-        .clock_divisor_fixed_point(6, 0)
+        .clock_divisor_fixed_point(7, 0)
         .build(sm0);
 
     let (write_sm, _, mut write_tx) = PIOBuilder::from_installed_program(write_installed)
@@ -157,7 +157,7 @@ fn main() -> ! {
         .out_shift_direction(ShiftDirection::Right)
         .side_set_pin_base(ctrl[0].id().num)
         .autopull(false)
-        .clock_divisor_fixed_point(6, 0)
+        .clock_divisor_fixed_point(7, 0)
         .build(sm1);
 
     read_sm.set_pindirs(ctrl.iter().map(|p| (p.id().num, PinDir::Output)));
