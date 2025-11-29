@@ -12,7 +12,7 @@ use rp235x_hal::binary_info::{
 use rp235x_hal::block::ImageDef;
 use rp235x_hal::clocks::init_clocks_and_plls;
 use rp235x_hal::dma::{Byte, HalfWord};
-use rp235x_hal::gpio::{DynPinId, FunctionPio0, Pin, PinGroup, Pins, PullUp};
+use rp235x_hal::gpio::{DynPinId, FunctionPio0, Pin, PinGroup, PinState, Pins, PullUp};
 use rp235x_hal::pac::Peripherals;
 use rp235x_hal::pio::{PIOBuilder, PIOExt, PinDir, ShiftDirection};
 use rp235x_hal::usb::UsbBus;
@@ -95,6 +95,8 @@ fn main() -> ! {
         pins.gpio17.into_function().into_pull_type().into_dyn_pin(),
     ];
 
+    let detect = pins.gpio18.into_push_pull_output_in_state(PinState::High);
+
     let (mut pio0, sm0, sm1, _, _) = pac.PIO0.split(&mut pac.RESETS);
 
     // side-set 0 is DIR
@@ -104,12 +106,15 @@ fn main() -> ! {
         .side_set 2 opt
         ; .in 8 left auto 8
         ; .out 16 right auto 16
-        ; .clock_div 1
+        ; .clock_div 20
 
+            pull block
+            out x, 32
         .wrap_target
-            out pins,    8
-            mov pindirs, null   side 0b00
-            in  pins,    8
+            pull block
+            out  pins,    16    side 0b00
+            mov  pindirs, x     [1]
+            in   pins,    8
         .wrap
         "
     );
@@ -117,11 +122,15 @@ fn main() -> ! {
         "
         .side_set 2 opt
         ; .out 16 right auto 16
-        ; .clock_div 1
+        ; .clock_div 20
 
+            pull block
+            out x, 32
         .wrap_target
-            out pins,    16     side 0b01
-            mov pindirs, ~null  side 0b11
+            pull block
+            out  pins,    16    side 0b01
+            mov  pindirs, x
+            nop                 side 0b11
             nop                 side 0b01
         .wrap
         "
@@ -129,36 +138,36 @@ fn main() -> ! {
     let read_installed = pio0.install(&read.program).unwrap();
     let write_installed = pio0.install(&write.program).unwrap();
 
-    let (mut read_sm, read_rx, read_tx) = PIOBuilder::from_installed_program(read_installed)
+    let (mut read_sm, read_rx, mut read_tx) = PIOBuilder::from_installed_program(read_installed)
         .out_pins(data[0].id().num, (data.len() + addr.len()) as _)
         .out_shift_direction(ShiftDirection::Right)
         .in_pin_base(data[0].id().num)
         .in_count(data.len() as _)
         .in_shift_direction(ShiftDirection::Left)
         .side_set_pin_base(ctrl[0].id().num)
-        .autopull(true)
-        .pull_threshold(16)
+        /*.autopull(true)
+        .pull_threshold(16)*/
         .autopush(true)
         .push_threshold(8)
-        .clock_divisor_fixed_point(1, 0)
+        .clock_divisor_fixed_point(6, 0)
         .build(sm0);
 
-    let (write_sm, _, write_tx) = PIOBuilder::from_installed_program(write_installed)
+    let (write_sm, _, mut write_tx) = PIOBuilder::from_installed_program(write_installed)
         .out_pins(data[0].id().num, (data.len() + addr.len()) as _)
         .out_shift_direction(ShiftDirection::Right)
         .side_set_pin_base(ctrl[0].id().num)
-        .autopull(true)
-        .pull_threshold(16)
-        .clock_divisor_fixed_point(1, 0)
+        .autopull(false)
+        .clock_divisor_fixed_point(6, 0)
         .build(sm1);
 
-    read_sm.set_pindirs(ctrl.map(|p| (p.id().num, PinDir::Output)));
-    for i in addr[0].id().num..(addr[0].id().num + addr.len() as u8) {
-        read_sm.set_pindirs([(i, PinDir::Output)]);
-    }
+    read_sm.set_pindirs(ctrl.iter().map(|p| (p.id().num, PinDir::Output)));
+    read_sm.set_pindirs(addr.iter().map(|p| (p.id().num, PinDir::Output)));
 
     let read_sm = read_sm.start();
     let write_sm = write_sm.start();
+
+    read_tx.write(0b11111111_11111111_11111111_00000000);
+    write_tx.write(0b11111111_11111111_11111111_11111111);
 
     let usb_bus = UsbBusAllocator::new(UsbBus::new(
         pac.USB,
@@ -195,8 +204,17 @@ fn main() -> ! {
                 Err(_) => {
                     // do nothing
                 }
-                Ok(_) => {
+                Ok(n) => {
+                    driver.receive(n).unwrap();
+                }
+            }
+
+            match driver.write() {
+                Err(_) => {
                     // do nothing
+                }
+                Ok(n) => {
+                    driver.clear(n).unwrap();
                 }
             }
         }

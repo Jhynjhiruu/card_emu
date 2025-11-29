@@ -8,8 +8,9 @@ use usb_device::{Result, UsbDirection, UsbError};
 
 use crate::rom::ROM;
 
+// maximum size allowed for bulk endpoints
 const BRIDGE_WRITE_SIZE: usize = 64;
-const BRIDGE_READ_SIZE: usize = 32;
+const BRIDGE_READ_SIZE: usize = 64;
 
 pub struct Bridge<'a, B: UsbBus, ReadSM, WriteSM>
 where
@@ -38,6 +39,13 @@ enum ControlCommand {
     Write = 0x00,
     Read = 0x01,
 
+    WriteFromBuf = 0x10,
+    ReadIntoBuf = 0x11,
+    WriteBitsFromBuf = 0x12,
+
+    GetRecvLen = 0x80,
+    GetSendLen = 0x81,
+
     RebootToUSB = 0xFF,
 }
 
@@ -48,6 +56,13 @@ impl TryFrom<u8> for ControlCommand {
         match value {
             0x00 => Ok(Self::Write),
             0x01 => Ok(Self::Read),
+
+            0x10 => Ok(Self::WriteFromBuf),
+            0x11 => Ok(Self::ReadIntoBuf),
+            0x12 => Ok(Self::WriteBitsFromBuf),
+
+            0x80 => Ok(Self::GetRecvLen),
+            0x81 => Ok(Self::GetSendLen),
 
             0xFF => Ok(Self::RebootToUSB),
 
@@ -89,6 +104,10 @@ where
                         return;
                     }
 
+                    while self.read_rx.is_empty() {
+                        // wait
+                    }
+
                     if let Some(b) = self.read_rx.read() {
                         xfer.accept(|buf| {
                             buf[0] = b as u8;
@@ -99,6 +118,22 @@ where
                         xfer.reject().unwrap();
                     }
                 }
+
+                Ok(ControlCommand::GetRecvLen) => xfer
+                    .accept(|buf| {
+                        buf[0..size_of::<u32>()]
+                            .copy_from_slice(&(self.recv_len as u32).to_be_bytes());
+                        Ok(size_of::<u32>())
+                    })
+                    .unwrap(),
+
+                Ok(ControlCommand::GetSendLen) => xfer
+                    .accept(|buf| {
+                        buf[0..size_of::<u32>()]
+                            .copy_from_slice(&(self.send_len as u32).to_be_bytes());
+                        Ok(size_of::<u32>())
+                    })
+                    .unwrap(),
 
                 Ok(c) => {
                     todo!("unimplemented command: {c:?}");
@@ -122,11 +157,83 @@ where
                 }
 
                 Ok(ControlCommand::Write) => {
+                    while self.write_tx.is_full() {
+                        // do nothing
+                    }
+
                     if self.write_tx.write_u16_replicated(req.value) {
                         xfer.accept().unwrap();
                     } else {
                         xfer.reject().unwrap();
                     }
+
+                    while !self.write_tx.is_empty() {
+                        // do nothing
+                    }
+                }
+
+                Ok(ControlCommand::WriteFromBuf) => {
+                    let to_write = usize::from(req.index);
+
+                    if to_write > self.recv_len {
+                        xfer.reject().unwrap();
+                        return;
+                    }
+
+                    for &b in &self.recv_buffer[..to_write] {
+                        while self.write_tx.is_full() {
+                            // do nothing
+                        }
+
+                        if self.write_tx.write_u16_replicated(req.value | u16::from(b)) == false {
+                            xfer.reject().unwrap();
+                            return;
+                        }
+                    }
+
+                    self.recv_buffer.copy_within(to_write.., 0);
+                    self.recv_len -= to_write;
+
+                    while !self.write_tx.is_empty() {
+                        // do nothing
+                    }
+
+                    xfer.accept().unwrap();
+                }
+
+                Ok(ControlCommand::WriteBitsFromBuf) => {
+                    let to_write = usize::from(req.index);
+
+                    if to_write > self.recv_len {
+                        xfer.reject().unwrap();
+                        return;
+                    }
+
+                    for &b in &self.recv_buffer[..to_write] {
+                        for i in 0..u8::BITS {
+                            while self.write_tx.is_full() {
+                                // do nothing
+                            }
+
+                            if self
+                                .write_tx
+                                .write_u16_replicated(req.value | u16::from((b >> i) & 1))
+                                == false
+                            {
+                                xfer.reject().unwrap();
+                                return;
+                            }
+                        }
+                    }
+
+                    self.recv_buffer.copy_within(to_write.., 0);
+                    self.recv_len -= to_write;
+
+                    while !self.write_tx.is_empty() {
+                        // do nothing
+                    }
+
+                    xfer.accept().unwrap();
                 }
 
                 Ok(c) => {
@@ -198,20 +305,22 @@ where
         if self.send_len == 0 {
             return Err(UsbError::WouldBlock);
         }
-        let res = self.write_ep.write(&self.send_buffer[..self.send_len + 2]);
+        let res = self.write_ep.write(&self.send_buffer[..self.send_len]);
         if res.is_ok() {
             let amount = *res.as_ref().unwrap();
-            if amount > 2 {
-                self.send_buffer
-                    .copy_within((amount)..(self.send_len + 2), 2);
-                let actual_amount = amount - 2;
-                self.send_len -= actual_amount;
+            if amount > 0 {
+                self.send_buffer.copy_within((amount)..(self.send_len), 0);
+                self.send_len -= amount;
             }
         }
         res
     }
 
-    pub fn handle(&mut self) -> Result<()> {
+    pub fn receive(&mut self, amount: usize) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn clear(&mut self, amount: usize) -> Result<()> {
         Ok(())
     }
 }
